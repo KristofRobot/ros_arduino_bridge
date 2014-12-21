@@ -253,7 +253,7 @@ class PololuMotorCurrent(AnalogFloatSensor):
         
     def read_value(self):
         # From the Pololu source code
-        milliamps = self.controller.analog_read(self.pin) * 34
+        milliamps = self.controller.analog_read(self.pin) * 9
         return milliamps / 1000.0
     
 class PhidgetsVoltage(AnalogFloatSensor):
