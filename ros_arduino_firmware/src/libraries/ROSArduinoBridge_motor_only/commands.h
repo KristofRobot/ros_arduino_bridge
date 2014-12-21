@@ -18,6 +18,7 @@
 #define LEFT            0
 #define RIGHT           1
 #define SEND_PWM       'n'
+#define CHECK_FAULT    'f'
 
 #endif
 

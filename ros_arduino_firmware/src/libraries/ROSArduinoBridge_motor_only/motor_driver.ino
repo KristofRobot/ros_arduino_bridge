@@ -23,6 +23,7 @@
 
   /* Wrap the drive motor set speed function */
   void setMotorSpeed(int i, int spd) {
+    if (isEmergencyStop) return; //dont use motor in emergencyStop mode
     if (i == LEFT) drive.setM1Speed(spd);
     else drive.setM2Speed(spd);
   }

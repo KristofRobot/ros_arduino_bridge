@@ -1,20 +1,20 @@
 /*********************************************************************
  *  ROSArduinoBridge
- 
+
     A set of simple serial commands to control a differential drive
-    robot and receive back sensor and odometry data. Default 
+    robot and receive back sensor and odometry data. Default
     configuration assumes use of an Arduino Mega + Pololu motor
     controller shield + Robogaia Mega Encoder shield.  Edit the
-    readEncoder() and setMotorSpeed() wrapper functions if using 
+    readEncoder() and setMotorSpeed() wrapper functions if using
     different motor controller or encoder method.
 
     Created for the Pi Robot Project: http://www.pirobot.org
     and the Home Brew Robotics Club (HBRC): http://hbrobotics.org
-    
+
     Authors: Patrick Goebel, James Nugen
-    
+
     Inspired and modeled after the ArbotiX driver by Michael Ferguson
-    
+
     Extended by Kristof Robot with:
     - DEBUG routines (incl. free ram detection, and logic analyzer debug pins)
     - WATCHDOG timer
@@ -24,7 +24,7 @@
     - Removed SERVO code and commands
     - Removed Sensors code and commands
     - added SEND_PWM command
-    
+
     Software License Agreement (BSD License)
 
     Copyright (c) 2012, Patrick Goebel.
@@ -77,10 +77,10 @@
 
    /* TinyQED encoder counters */
    //#define TINYQED
-   
+
    /* Encoders directly attached to Arduino board */
    #define ARDUINO_ENC_COUNTER
-   
+
    //#define POSITION_PID
    #define VELOCITY_PID
 #endif
@@ -90,7 +90,7 @@
 #define BAUDRATE     115200
 
 /* Maximum PWM signal */
-#define MAX_PWM        400
+#define MAX_PWM        400   //can go to 400, but can be set lower to protect motors
 #define MIN_PWM        50    //lowest PWM before motors start moving reliably
 
 #if defined(ARDUINO) && ARDUINO >= 100
@@ -115,28 +115,29 @@
 
   /* PID parameters and functions */
   #include "diff_controller.h"
-  
+
   /* Initial PID Parameters */
-  const int INIT_KP = 1;    
+  const int INIT_KP = 1;
   const int INIT_KD = 0;
-  const int INIT_KI = 30;      
-  const int INIT_KO = 5;  
+  const int INIT_KI = 30;
+  const int INIT_KO = 5;
 
   /* Run the PID loop at 30 times per second */
   #define PID_RATE           30     // Hz
 
   /* Convert the rate into an interval */
   const int PID_INTERVAL = 1000 / PID_RATE;
-  
+
   /* Track the next time we make a PID calculation */
   unsigned long nextPID = PID_INTERVAL;
-  
+
   /* Stop the robot if it hasn't received a movement command
    in this number of milliseconds */
   #define AUTO_STOP_INTERVAL 2000
   long lastMotorCommand = AUTO_STOP_INTERVAL;
-  
+
   boolean isMotorDisabled=false;
+  boolean isEmergencyStop=false;   //set to true in case of motor fault
 #endif
 
 /* Variable initialization */
@@ -177,7 +178,7 @@ int runCommand() {
   int pid_args[4];
   arg1 = atoi(argv1);
   arg2 = atoi(argv2);
-  
+
   switch(cmd) {
 #ifdef USE_BASE
   case READ_ENCODERS:
@@ -197,7 +198,7 @@ int runCommand() {
         setMotorEnableFlag(true);
         isMotorDisabled=false;
     }
-    
+
     if (arg1 == 0 && arg2 == 0) {
       setMotorSpeeds(0, 0);
       moving = 0;
@@ -205,7 +206,7 @@ int runCommand() {
     else moving = 1;
     leftPID.targetTicksPerFrame = arg1;
     rightPID.targetTicksPerFrame = arg2;
-    Serial.println("OK"); 
+    Serial.println("OK");
     break;
   case UPDATE_PID:
     while ((str = strtok_r(p, ":", &p)) != '\0') {
@@ -215,24 +216,30 @@ int runCommand() {
     setPIDParams(pid_args[0], pid_args[1], pid_args[2], pid_args[3], PID_RATE);
     Serial.println("OK");
     break;
+  case CHECK_FAULT:
+    if (isEmergencyStop)
+      Serial.println(1); //in emergency stop
+    else
+      Serial.println(0);
+    break;
   case SEND_PWM:
     { //need brackets to restrict scope of newly created variables to this case statement
       lastMotorCommand =  millis();
-      
+
       if (isMotorDisabled) {
         setMotorEnableFlag(true);
         isMotorDisabled=false;
       }
-     
+
       int leftSpeed = arg1;
       int rightSpeed = arg2;
-     
+
       //ensure speeds are below MAX_PWM speed
       if (leftSpeed > MAX_PWM) leftSpeed = MAX_PWM;
       else if (leftSpeed < -MAX_PWM) leftSpeed = -MAX_PWM;
       if (rightSpeed > MAX_PWM) rightSpeed = MAX_PWM;
       else if (rightSpeed < -MAX_PWM) rightSpeed = -MAX_PWM;
-      
+
       setMotorSpeeds(leftSpeed, rightSpeed);
       moving = 0; //no need to do PID
       Serial.println("OK");
@@ -250,12 +257,12 @@ int runCommand() {
     break;
   case ANALOG_WRITE:
     analogWrite(arg1, arg2);
-    Serial.println("OK"); 
+    Serial.println("OK");
     break;
   case DIGITAL_WRITE:
     if (arg2 == 0) digitalWrite(arg1, LOW);
     else if (arg2 == 1) digitalWrite(arg1, HIGH);
-    Serial.println("OK"); 
+    Serial.println("OK");
     break;
   case PIN_MODE:
     if (arg2 == 0) pinMode(arg1, INPUT);
@@ -270,9 +277,9 @@ int runCommand() {
 
 /* Setup function--runs once at startup. */
 void setup() {
-  
+
   Serial.begin(BAUDRATE);
-  
+
 #ifdef DEBUG
   Serial.println("Starting up...");
   pinMode(A2, OUTPUT); //cpu measurement pin for logic analyzer
@@ -288,16 +295,16 @@ void setup() {
     DDRD &= ~(1<<LEFT_ENC_PIN_B);
     DDRC &= ~(1<<RIGHT_ENC_PIN_A);
     DDRC &= ~(1<<RIGHT_ENC_PIN_B);
-    
+
     //enable pull up resistors
     PORTD |= (1<<LEFT_ENC_PIN_A);
     PORTD |= (1<<LEFT_ENC_PIN_B);
     PORTC |= (1<<RIGHT_ENC_PIN_A);
     PORTC |= (1<<RIGHT_ENC_PIN_B);
-    
+
     PCMSK2 |= (1 << LEFT_ENC_PIN_A)|(1 << LEFT_ENC_PIN_B); // tell pin change mask to listen to left encoder pins
     PCMSK1 |= (1 << RIGHT_ENC_PIN_A)|(1 << RIGHT_ENC_PIN_B); // tell pin change mask to listen to right encoder pins
-    
+
     PCICR |= (1 << PCIE1) | (1 << PCIE2);   // enable PCINT1 and PCINT2 interrupt in the general interrupt mask
   #endif
 
@@ -333,7 +340,7 @@ void loop() {
 
 
   while (Serial.available() > 0) {
-    
+
     // Read the next character
     chr = Serial.read();
 
@@ -371,7 +378,7 @@ void loop() {
       }
     }
   }
-  
+
 // If we are using base control, run a PID calculation at the appropriate intervals
 #ifdef USE_BASE
   if (millis() > nextPID) {
@@ -381,7 +388,7 @@ void loop() {
   #endif
     updatePID();
   }
-  
+
   // Check to see if we have exceeded the auto-stop interval
   if ((millis() - lastMotorCommand) > AUTO_STOP_INTERVAL) {;
     //setMotorSpeeds(0, 0);
@@ -390,7 +397,7 @@ void loop() {
     isMotorDisabled=true;
     moving = 0;
   }
-  
+
   #ifndef DEBUG
   //detect motor faults
   //if motor is disabled, motor fault is active; so excluding that case
@@ -403,14 +410,12 @@ void loop() {
    #ifdef WATCHDOG
     wdt_disable();
    #endif
-    while(1){
-      Serial.println("FATAL ERROR: Motor fault - stopped");
-      delay(1000);
-    }
+    //activate emergencyStop
+    isEmergencyStop = true;
   }
   #endif
-  
-    
+
+
   #ifdef DEBUG
     //toggle cpu measurement for logic analyzer on pin 5
     PINC = (1<<PC2); //pin A2
@@ -424,9 +429,9 @@ void loop() {
 /* From http://jeelabs.org/2011/05/22/atmega-memory-use/ */
 int freeRam () {
 
-  extern int __heap_start, *__brkval; 
-  int v; 
-  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 
 }
 #endif
