@@ -310,6 +310,9 @@ class Arduino:
     def pin_mode(self, pin, mode):
         return self.execute_ack('c %d %d' %(pin, mode))
 
+    def read_fault_mode(self):
+        return int(self.execute('f'));
+
     def servo_write(self, id, pos):
         ''' Usage: servo_write(id, pos)
             Position is given in radians and converted to degrees before sending

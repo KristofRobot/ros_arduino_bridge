@@ -137,6 +137,8 @@ class BaseController:
             except:
                 self.bad_encoder_count += 1
                 rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
+                if (self.arduino.read_fault_mode() > 0):
+                    rospy.logerr("Motor is in fault status")
                 return
                             
             dt = now - self.then
