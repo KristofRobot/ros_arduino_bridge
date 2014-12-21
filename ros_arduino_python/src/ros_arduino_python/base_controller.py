@@ -131,14 +131,13 @@ class BaseController:
     def poll(self):
         now = rospy.Time.now()
         if now > self.t_next:
+            
             # Read the encoders
             try:
                 left_enc, right_enc = self.arduino.get_encoder_counts()
             except:
                 self.bad_encoder_count += 1
                 rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
-                if (self.arduino.read_fault_mode() > 0):
-                    rospy.logerr("Motor is in fault status")
                 return
                             
             dt = now - self.then
@@ -230,6 +229,9 @@ class BaseController:
                 self.arduino.drive(self.v_left, self.v_right)
                 
             self.t_next = now + self.t_delta
+
+            if (self.arduino.read_fault_mode() > 0):
+                rospy.logerr("Motor is in fault status")
             
     def stop(self):
         self.stopped = True
