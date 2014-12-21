@@ -275,6 +275,35 @@ int runCommand() {
   }
 }
 
+/* Run emergency commands only.  Commands are defined in commands.h */
+int runEmergencyCommand() {
+  int i = 0;
+  char *p = argv1;
+  char *str;
+  int pid_args[4];
+  arg1 = atoi(argv1);
+  arg2 = atoi(argv2);
+
+  switch(cmd) {
+#ifdef USE_BASE
+  case READ_ENCODERS:
+    Serial.print(readEncoder(LEFT));
+    Serial.print(" ");
+    Serial.println(readEncoder(RIGHT));
+    break;
+  case CHECK_FAULT:
+    if (isEmergencyStop)
+      Serial.println(1); //in emergency stop
+    else
+      Serial.println(0);
+    break;
+#endif
+  default:
+    Serial.println("Invalid Command");
+    break;
+  }
+}
+
 /* Setup function--runs once at startup. */
 void setup() {
 
@@ -348,7 +377,10 @@ void loop() {
     if (chr == 13) {
       if (arg == 1) argv1[index] = NULL;
       else if (arg == 2) argv2[index] = NULL;
-      runCommand();
+      if (isEmergencyStop)
+        runEmergencyCommand();
+      else
+        runCommand();
       resetCommand();
     }
     // Use spaces to delimit parts of the command
@@ -407,9 +439,6 @@ void loop() {
     setMotorEnableFlag(false);
     isMotorDisabled=true;
     moving = 0;
-   #ifdef WATCHDOG
-    wdt_disable();
-   #endif
     //activate emergencyStop
     isEmergencyStop = true;
   }
