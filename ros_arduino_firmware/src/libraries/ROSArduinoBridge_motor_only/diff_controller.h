@@ -47,6 +47,9 @@
 
 SetPointInfo leftPID, rightPID;
 
+int last_right_pwm = 0;
+int last_left_pwm = 0;
+
 /* PID Parameters 
 * Do not SET these directly here, unless you know what you are doing 
 * Use setPIDParameters() instead
@@ -56,7 +59,62 @@ int Kd = 0;
 int Ki = 0;      
 int Ko = 1; 
 
-unsigned char moving = 0; // is the base in motion?
+boolean isPIDEnabled = false; //is PID enabled?
+boolean isSafeStop = false; //are we trying to stop safely?
+
+/*
+* General rate limiter.
+* Based on email from davida at smu.edu to hbrobotics group
+*/
+int rate_limit(int val,int last,int rate)
+{
+        int x;
+        x = val-last;
+        if (abs(x) > rate) {
+                if (x < 0) {
+                        x = last - rate;
+                } else  {
+                        x = last + rate;
+                }
+        } else  {
+                x = val;
+        }
+        return x;
+}
+
+/*
+* PWM rate limiter to safeguard the motor control signal.
+*/
+int pwm_rate_limit(int val_pwm,int last_pwm)
+{
+    if (val_pwm*last_pwm < 0){
+      //switching from forward to backward or vice versa
+      val_pwm = rate_limit(val_pwm,last_pwm,RATE_LIMIT);
+      //make sure we stay out of ]-MIN_PWM, MIN_PWM[
+      if (abs(val_pwm) < MIN_PWM){
+        if (last_pwm > 0)
+          //going from positive to negative, so jump immediately to -MIN_PWM
+          val_pwm = -MIN_PWM;
+        else if (last_left_pwm < 0)
+          //going from negative to positive, so jump immediately to MIN_PWM
+          val_pwm = MIN_PWM;
+      }
+    } else if (abs(val_pwm) > MIN_PWM) {
+      //normal rate limiting
+      val_pwm = rate_limit(val_pwm,last_pwm,RATE_LIMIT);
+      if (abs(val_pwm) < MIN_PWM){
+        //make sure we have at least -MIN_PWM
+        if (val_pwm > 0)
+          val_pwm = MIN_PWM;
+        else if (val_pwm < 0)
+          val_pwm = -MIN_PWM;
+      }
+    } else {
+       //should never get here - put on zero to be safe
+       val_pwm = 0;
+    }
+    return val_pwm;
+}
 
 /*
 * Initialize PID variables to zero to prevent startup spikes
@@ -202,27 +260,59 @@ void doPID(SetPointInfo * p) {
 
 /* Read the encoder values and call the PID routine */
 void updatePID() {
+  int right_pwm = 0;
+  int left_pwm = 0;
+
   /* Read the encoders */
   leftPID.encoder = readEncoder(0);
   rightPID.encoder = readEncoder(1);
     
   /* If we're not moving there is nothing more to do */
-  if (!moving){
-    /*
-    * Reset PIDs, to prevent startup spikes,
-    * see http://brettbeauregard.com/blog/2011/04/improving-the-beginner%E2%80%99s-pid-initialization/
-    * Most importantly, keep Encoder and PrevEnc synced; use that as criteria whether we need reset
-    */
-    if (leftPID.prevEnc != leftPID.encoder || rightPID.prevEnc != rightPID.encoder) resetPID();
-    return;
+  if (!isPIDEnabled){
+    //are we trying to stop safely?
+    if (isSafeStop){
+      /* rate limit output to 0 */
+      left_pwm = rate_limit(0,last_left_pwm,RATE_LIMIT);
+      right_pwm = rate_limit(0,last_right_pwm,RATE_LIMIT);
+
+      if (abs(left_pwm) < MIN_PWM) left_pwm = 0;
+      if (abs(right_pwm) < MIN_PWM) right_pwm = 0;
+
+      if (left_pwm == 0 && right_pwm == 0)
+        //safely stopped - end safeStopping condition
+        isSafeStop = false;
+
+    } else {
+       /*
+      * Reset PIDs, to prevent startup spikes,
+      * see http://brettbeauregard.com/blog/2011/04/improving-the-beginner%E2%80%99s-pid-initialization/
+      * Most importantly, keep Encoder and PrevEnc synced; use that as criteria whether we need reset
+      */
+      if (leftPID.prevEnc != leftPID.encoder || rightPID.prevEnc != rightPID.encoder) {
+        resetPID();
+        last_right_pwm = 0;
+        last_left_pwm = 0;
+      }
+      return;
+    }
+
+  } else {
+    /* Compute PID update for each motor */
+    doPID(&rightPID);
+    doPID(&leftPID);
+
+    /* Rate limit output */
+    left_pwm = pwm_rate_limit(leftPID.output, last_left_pwm);
+    right_pwm = pwm_rate_limit(rightPID.output, last_right_pwm);
   }
-  
-  /* Compute PID update for each motor */
-  doPID(&rightPID);
-  doPID(&leftPID);
+
+  //save values
+  last_right_pwm = right_pwm;
+  last_left_pwm = left_pwm;
 
   /* Set the motor speeds accordingly */
-  setMotorSpeeds(leftPID.output, rightPID.output);
+  setMotorSpeeds(left_pwm, right_pwm);
+
 }
 
 
