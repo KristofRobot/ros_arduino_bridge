@@ -93,7 +93,7 @@
 /* Maximum PWM signal */
 #define MAX_PWM        400   //can go to 400, but can be set lower to protect motors
 #define MIN_PWM        50    //lowest PWM before motors start moving reliably
-#define RATE_LIMIT     25    //max increase in PWM allowed per cycle
+#define RATE_LIMIT     10    //max increase in PWM allowed per cycle
 
 #if defined(ARDUINO) && ARDUINO >= 100
 #include "Arduino.h"
